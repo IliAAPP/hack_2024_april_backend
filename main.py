@@ -1,76 +1,71 @@
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from transformers import AutoModelForQuestionAnswering, AutoTokenizer
 
-from fastapi import FastAPI, Request, status
-from fastapi.encoders import jsonable_encoder
-# from fastapi.exceptions import ValidationError
-from fastapi.responses import JSONResponse
+app = FastAPI()
 
-app = FastAPI(
-    title="Trading App"
+model = AutoModelForQuestionAnswering.from_pretrained("facebook/bart-base")
+tokenizer = AutoTokenizer.from_pretrained("facebook/bart-base")
+
+origins = [
+    "http://localhost",
+    "http://127.0.0.1:3000",
+    "http://10.1.1.31:3000",
+    "http://192.168.253.151:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Set-Cookie", "Access-Control-Allow-Headers", "Authorization"],
 )
 
 
-# Благодаря этой функции клиент видит ошибки, происходящие на сервере, вместо "Internal server error"
-# @app.exception_handler(ValidationError)
-# async def validation_exception_handler(request: Request, exc: ValidationError):
-#     return JSONResponse(
-#         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-#         content=jsonable_encoder({"detail": exc.errors()}),
-#     )
+@app.get("/", tags=["root"])
+async def read_root() -> dict:
+    return {"message": "Welcome to your todo list."}
 
 
-fake_users = [
-    {"id": 1, "role": "admin", "name": ["Bob"]},
-    {"id": 2, "role": "investor", "name": "John"},
-    {"id": 3, "role": "trader", "name": "Matt"},
-    {"id": 4, "role": "investor", "name": "Homer", "degree": [
-        {"id": 1, "created_at": "2020-01-01T00:00:00", "type_degree": "expert"}
-    ]},
-]
+@app.get("/authorization")
+def authorization():
+    return {"message": "Authorization"}
 
 
-class DegreeType(Enum):
-    newbie = "newbie"
-    expert = "expert"
+@app.post("/routes")
+def routes():
+    return {"message": "Страница со всеми маршрутами"}
 
 
-class Degree(BaseModel):
-    id: int
-    created_at: datetime
-    type_degree: DegreeType
+@app.get("/routes/save_routes")
+def routes_save_routes():
+    return {"message": "Страница с сохранением маршрутов"}
 
 
-class User(BaseModel):
-    id: int
-    role: str
-    name: str
-    degree: Optional[List[Degree]] = []
+@app.get("/routes/route_data")
+def routes_route_data():
+    return {"message": "Данные о маршрутах"}
 
 
-@app.get("/users/{user_id}", response_model=List[User])
-def get_user(user_id: int):
-    return [user for user in fake_users if user.get("id") == user_id]
+def answer_question(question):
+    inputs = tokenizer(question, return_tensors="pt")
+    outputs = model(**inputs)
+    answer = tokenizer.decode(outputs.start_logits.argmax(-1), skip_special_tokens=True)
+    return answer
 
 
-fake_trades = [
-    {"id": 1, "user_id": 1, "currency": "BTC", "side": "buy", "price": 123, "amount": 2.12},
-    {"id": 2, "user_id": 1, "currency": "BTC", "side": "sell", "price": 125, "amount": 2.12},
-]
+@app.get("/answer")
+async def answer_endpoint(question: str):
+    answer = await answer_question(question)
+    return {"answer": answer}
 
 
-class Trade(BaseModel):
-    id: int
-    user_id: int
-    currency: str = Field(max_length=5)
-    side: str
-    price: float = Field(ge=0)
-    amount: float
+if __name__ == "__main__":
+    import uvicorn
 
-
-@app.post("/trades")
-def add_trades(trades: List[Trade]):
-    fake_trades.extend(trades)
-    return {"status": 200, "data": fake_trades}
+    uvicorn.run
